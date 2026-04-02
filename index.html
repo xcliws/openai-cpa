@@ -364,13 +364,13 @@
 											<h4 class="text-sm font-bold text-blue-800">二级域名泛解析模式</h4>
 											<p class="text-xs text-gray-500 mt-1">登录cloudflare后，Global API Key访问这个链接拿：https://dash.cloudflare.com/profile/api-tokens</p>
 											<p class="text-xs text-gray-500 mt-1">开启后将忽略上方主域名池，使用下方生成的二级域名轮询。配置需点击右下角保存生效。</p>
-											<p v-if="!['freemail', 'imap'].includes(config.email_api_mode)" class="text-[11px] font-bold text-red-600 mt-2 bg-red-50 px-2.5 py-1.5 rounded-md inline-block border border-red-100 shadow-sm">
+											<p v-if="!['freemail', 'imap', 'cloudflare_temp_email'].includes(config.email_api_mode)" class="text-[11px] font-bold text-red-600 mt-2 bg-red-50 px-2.5 py-1.5 rounded-md inline-block border border-red-100 shadow-sm">
 												⚠️ 系统提示：当前发信 API 模式不支持此功能！仅允许在 freemail 或 imap 模式下开启。
 											</p>
 										</div>
-										<label class="relative inline-flex items-center shrink-0" :class="['freemail', 'imap'].includes(config.email_api_mode) ? 'cursor-pointer' : 'cursor-not-allowed opacity-50 grayscale'">
-											<input type="checkbox" v-model="config.enable_sub_domains" :disabled="!['freemail', 'imap'].includes(config.email_api_mode)" class="sr-only peer">
-											<div class="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all" :class="!['freemail', 'imap'].includes(config.email_api_mode) ? 'peer-checked:bg-gray-400' : 'peer-checked:bg-blue-600'"></div>
+										<label class="relative inline-flex items-center shrink-0" :class="['freemail', 'imap', 'cloudflare_temp_email'].includes(config.email_api_mode) ? 'cursor-pointer' : 'cursor-not-allowed opacity-50 grayscale'">
+											<input type="checkbox" v-model="config.enable_sub_domains" :disabled="!['freemail', 'imap', 'cloudflare_temp_email'].includes(config.email_api_mode)" class="sr-only peer">
+											<div class="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all" :class="!['freemail', 'imap', 'cloudflare_temp_email'].includes(config.email_api_mode) ? 'peer-checked:bg-gray-400' : 'peer-checked:bg-blue-600'"></div>
 										</label>
 									</div>
 
@@ -458,7 +458,9 @@
                                         </button>
                                     </div>
 									<p class="text-sm text-yellow-700 mb-4 font-bold bg-yellow-100 inline-block px-2 py-1 rounded">项目地址：https://github.com/dreamhunter2333/cloudflare_temp_email</p>
-                                </div>
+									<p class="text-sm text-red-700 mt-4 mb-0 font-bold bg-red-100 inline-block px-2 py-1 rounded">如果开启了左边的【二级域名泛解析开关】必需要部署魔改项目否则项目无法启动</p>
+									<p class="text-sm text-red-700 mt-4 mb-0 font-bold bg-red-100 inline-block px-2 py-1 rounded">魔改项目：https://github.com/wenfxl/cloudflare_temp_email_worker</p>
+								</div>
                                 
                                 <div v-if="config.email_api_mode === 'imap' && config.imap">
                                     <p class="text-sm text-yellow-700 mb-4 font-bold bg-yellow-100 inline-block px-2 py-1 rounded">当前激活: IMAP 接码</p>
@@ -510,7 +512,8 @@
 										</div>
 									</div>
 									<p class="text-sm text-yellow-700 mt-4 mb-0 font-bold bg-yellow-100 inline-block px-2 py-1 rounded">项目地址：https://github.com/smanx/freemail</p>
-									<p class="text-sm text-yellow-700 mt-4 mb-0 font-bold bg-yellow-100 inline-block px-2 py-1 rounded">如果开启二级域名泛解析模式需要部署魔改项目：https://github.com/Msg-Lbo/mailfree</p>
+									<p class="text-sm text-red-700 mt-4 mb-0 font-bold bg-red-100 inline-block px-2 py-1 rounded">如果开启了左边的【二级域名泛解析开关】必需要部署魔改项目否则项目无法启动</p>
+									<p class="text-sm text-red-700 mt-4 mb-0 font-bold bg-red-100 inline-block px-2 py-1 rounded">魔改项目：https://github.com/Msg-Lbo/mailfree</p>
 								</div>
 
                                 <div v-if="config.email_api_mode === 'cloudmail' && config.cloudmail">
