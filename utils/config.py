@@ -81,6 +81,7 @@ def init_config():
     return user_config
 
 _c: dict = {}
+WEB_PASSWORD: str = "admin"
 ENABLE_SUB_DOMAINS: bool = False
 SUB_DOMAIN_COUNT: int = 10
 EMAIL_API_MODE: str = ""
@@ -201,6 +202,7 @@ MYSQL_CFG: dict = {}
 
 def reload_all_configs(new_config_dict=None):
     global _c
+    global WEB_PASSWORD
     global EMAIL_API_MODE, MAIL_DOMAINS, GPTMAIL_BASE, ADMIN_AUTH
     global ENABLE_SUB_DOMAINS, SUB_DOMAIN_COUNT
     global IMAP_SERVER, IMAP_PORT, IMAP_USER, IMAP_PASS
@@ -337,6 +339,8 @@ def reload_all_configs(new_config_dict=None):
             if text.isdigit():
                 group_ids.append(int(text))
         return group_ids
+
+    WEB_PASSWORD = str(_c.get("web_password", "admin")).strip()
 
     EMAIL_API_MODE = _c.get("email_api_mode", "cloudflare_temp_email")
     MAIL_DOMAINS = _c.get("mail_domains", "")

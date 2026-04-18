@@ -24,7 +24,7 @@ from utils.email_providers.gmail_oauth_handler import GmailOAuthHandler
 from curl_cffi import requests as cffi_requests
 from global_state import VALID_TOKENS, CLUSTER_NODES, NODE_COMMANDS, cluster_lock, log_history, engine, verify_token, worker_status
 import utils.config as cfg
-
+import utils.integrations.clash_manager as clash_manager
 router = APIRouter()
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -106,15 +106,6 @@ class UpdateMailboxStatusReq(BaseModel):
 # ==========================================
 # 辅助函数
 # ==========================================
-def get_web_password():
-    try:
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                c = yaml.safe_load(f) or {}
-                return str(c.get("web_password", "admin")).strip()
-    except Exception:
-        pass
-    return "admin"
 
 def parse_cpa_usage_to_details(raw_usage: dict) -> dict:
     details = {"is_cpa": True}
@@ -188,7 +179,8 @@ async def get_dashboard():
 
 @router.post("/api/login")
 async def login(data: LoginData):
-    if data.password == get_web_password():
+    current_password = getattr(core_engine.cfg, "WEB_PASSWORD", "admin")
+    if data.password == current_password:
         token = secrets.token_hex(16)
         VALID_TOKENS.add(token)
         return {"status": "success", "token": token}
@@ -325,7 +317,7 @@ async def get_config(token: str = Depends(verify_token)):
 
     if isinstance(config_data.get("sub2api_mode"), dict):
         config_data["sub2api_mode"].pop("min_remaining_weekly_percent", None)
-    config_data["web_password"] = config_data.get("web_password", "admin")
+    config_data["web_password"] = getattr(core_engine.cfg, "WEB_PASSWORD", "admin")
     if "local_microsoft" not in config_data:
         config_data["local_microsoft"] = {
             "enable_fission": False,
@@ -1149,8 +1141,6 @@ async def update_mailboxes_status(req: UpdateMailboxStatusReq, token: str = Depe
             pass
 
     return {"status": "success", "message": f"成功将 {success_count} 个邮箱状态重置！"}
-
-import utils.integrations.clash_manager as clash_manager
 
 class ClashDeployReq(BaseModel):
     count: int
