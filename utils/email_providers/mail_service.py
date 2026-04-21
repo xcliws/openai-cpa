@@ -674,6 +674,7 @@ def _extract_otp_code(content: str) -> str:
         r"(?i)ChatGPT code is\s*(\d{6})",
         r"(?i)verification code to continue:\s*(\d{6})",
         r"(?i)Subject:.*?(\d{6})",
+        r"(?i)enter this code:\s*(\d{6})",
     ]
     for p in patterns:
         m = re.search(p, content)
@@ -1021,14 +1022,37 @@ def get_oai_code(
                             m_id = str(m.get("emailId"))
                             if m_id in processed_mail_ids:
                                 continue
-                            content = f"{m.get('subject', '')}\n{m.get('text', '')}"
-                            if ("openai" in m.get("sendEmail", "").lower() or
-                                    "openai" in content.lower()):
-                                code = _extract_otp_code(content)
-                                if code:
-                                    processed_mail_ids.add(m_id)
-                                    print(f"\n[{cfg.ts()}] [SUCCESS] CloudMail ({mask_email(email)})邮箱提取成功: {code}")
-                                    return code
+                            sender = str(m.get("sendEmail", "")).lower()
+                            subject = str(m.get("subject", ""))
+
+                            if "openai" not in sender and "openai" not in subject.lower() and "chatgpt" not in subject.lower():
+                                continue
+
+                            raw_body = str(m.get("content", "") or m.get("text", ""))
+
+                            clean_body = re.sub(r'<[^>]+>', ' ', raw_body)
+
+                            combined_text = subject + " \n " + clean_body
+                            code = None
+                            new_format = re.findall(r"enter this code:\s*(\d{6})", combined_text, re.I)
+                            if not new_format:
+                                new_format = re.findall(r"verification code to continue:\s*(\d{6})", combined_text,
+                                                        re.I)
+
+                            if new_format:
+                                code = new_format[-1]
+                            else:
+                                direct = re.findall(r"Your ChatGPT code is (\d{6})", combined_text, re.I)
+                                if direct:
+                                    code = direct[-1]
+                                else:
+                                    generic = re.findall(r"\b(\d{6})\b", combined_text)
+                                    if generic:
+                                        code = generic[-1]
+                            if code:
+                                processed_mail_ids.add(m_id)
+                                print(f"\n[{cfg.ts()}] [SUCCESS] CloudMail ({mask_email(email)})邮箱提取成功: {code}")
+                                return code
             elif mode == "duckmail":
                 duck_use_proxy = getattr(cfg, 'DUCK_USE_PROXY', True)
                 duck_proxies = proxies if duck_use_proxy else None
@@ -1045,145 +1069,145 @@ def get_oai_code(
                                 f"\n[{cfg.ts()}] [SUCCESS] Duck转发 (Gmail OAuth) ({mask_email(email)}) 提取成功: {otp_code}")
                             return otp_code
 
-                    elif forward_mode == "cloudmail":
-                        if not forward_email:
-                            print(
-                                f"\n[{cfg.ts()}] [ERROR] Duckmail 运行失败: 未配置转发邮箱地址({forward_email})！")
-                            return ""
-                        token = get_cm_token(mail_proxies)
-                        if token:
-                            res = requests.post(
-                                f"{cfg.CM_API_URL}/api/public/emailList",
-                                headers={"Authorization": token},
-                                json={"toEmail": forward_email, "timeSort": "desc", "size": 10},
-                                proxies=mail_proxies, timeout=15,
-                            )
-                            if res.status_code == 200:
-                                for m in res.json().get("data", []):
-                                    m_id = str(m.get("emailId"))
-                                    if m_id in processed_mail_ids:
-                                        continue
-                                    content = f"{m.get('subject', '')}\n{m.get('text', '')}"
-                                    if "openai" not in m.get("sendEmail",
-                                                             "").lower() and "openai" not in content.lower():
-                                        continue
-
-                                    target_email = email.lower()
-                                    if target_email not in str(m).lower() and target_email not in content.lower():
-                                        continue
-
-                                    code = _extract_otp_code(content)
-                                    if code:
-                                        processed_mail_ids.add(m_id)
-                                        print(f"\n[{cfg.ts()}] [SUCCESS] Duck转发 (CloudMail) 提取成功: {code}")
-                                        return code
-
-
-                    elif forward_mode == "freemail":
-                        if not forward_email:
-                            print(f"\n[{cfg.ts()}] [ERROR] Duckmail 运行失败: 未配置转发邮箱地址(forward_email)！")
-                            return ""
-                        headers = {"Content-Type": "application/json",
-                                   "Authorization": f"Bearer {cfg.FREEMAIL_API_TOKEN}"}
-                        res = requests.get(f"{cfg.FREEMAIL_API_URL}/api/emails",
-                                           params={"mailbox": forward_email, "limit": 20},
-                                           headers=headers, proxies=mail_proxies,
-                                           verify=_ssl_verify(), timeout=15)
-                        if res.status_code == 200:
-                            raw_data = res.json()
-                            emails_list = (
-                                raw_data.get("data") or raw_data.get("emails") or raw_data.get("messages") or raw_data.get(
-                                    "results") or []
-                                if isinstance(raw_data, dict) else raw_data
-                            )
-                            if not isinstance(emails_list, list): emails_list = []
-                            for mail in emails_list:
-                                mail_id = str(mail.get("id") or mail.get("timestamp") or mail.get("subject") or "")
-                                if not mail_id or mail_id in processed_mail_ids: continue
-                                subject_text = str(mail.get("subject") or mail.get("title") or "")
-                                if "openai" not in subject_text.lower() and "openai" not in str(mail).lower():
-                                    continue
-                                try:
-                                    dr = requests.get(f"{cfg.FREEMAIL_API_URL}/api/email/{mail_id}",
-                                                      headers=headers, proxies=mail_proxies,
-                                                      verify=_ssl_verify(), timeout=15)
-                                    if dr.status_code == 200:
-                                        d = dr.json()
-                                        content = "\n".join(filter(None, [str(d.get("subject") or ""),
-                                                                          str(d.get("content") or ""),
-                                                                          str(d.get("html_content") or "")]))
-
-                                        target_email = email.lower()
-                                        if target_email not in str(d).lower() and target_email not in content.lower():
-                                            continue
-                                        code = _extract_otp_code(content)
-                                        if not code: code = str(d.get("code") or d.get("verification_code") or "")
-                                        if code:
-                                            processed_mail_ids.add(mail_id)
-                                            print(f"[{cfg.ts()}] [SUCCESS] Duck转发 (Freemail) 提取成功: {code}")
-                                            return code
-                                except Exception:
-                                    pass
-
-                    elif forward_mode == "mail_curl":
-                        if not forward_email:
-                            print(
-                                f"\n[{cfg.ts()}] [ERROR] Duckmail 运行失败: 未配置转发邮箱地址(forward_email)！")
-                            return ""
-                        inbox_url = f"{cfg.MC_API_BASE}/api/inbox?key={cfg.MC_KEY}&mailbox_id={forward_email}"
-                        res = requests.get(inbox_url, proxies=mail_proxies, verify=_ssl_verify(),
-                                           timeout=10)
-                        if res.status_code == 200:
-                            for mail_item in (res.json() or []):
-                                m_id = mail_item.get("mail_id")
-                                s_name = mail_item.get("sender_name", "").lower()
-                                if m_id and m_id not in processed_mail_ids and "openai" in s_name:
-                                    detail_res = requests.get(
-                                        f"{cfg.MC_API_BASE}/api/mail?key={cfg.MC_KEY}&id={m_id}",
-                                        proxies=mail_proxies, verify=_ssl_verify(), timeout=10)
-                                    if detail_res.status_code == 200:
-                                        d = detail_res.json()
-                                        body = f"{d.get('subject', '')}\n{d.get('content', '')}\n{d.get('html', '')}"
-                                        target_email = email.lower()
-                                        if target_email not in str(d).lower() and target_email not in body.lower():
-                                            continue
-
-                                        code = _extract_otp_code(body)
-                                        if code:
-                                            processed_mail_ids.add(m_id)
-                                            print(f"\n[{cfg.ts()}] [SUCCESS] Duck转发 (mail_curl) 提取成功: {code}")
-                                            return code
-                    elif forward_mode == "cloudflare_temp_email":
-                        if not forward_email:
-                            print(f"[{cfg.ts()}] [ERROR] Duckmail 运行失败: 未配置转发邮箱地址(forward_email)！")
-                            return ""
-                        res = requests.get(
-                            f"{cfg.GPTMAIL_BASE}/admin/mails",
-                            params={"limit": 20, "offset": 0, "address": forward_email},
-                            headers={"x-admin-auth": cfg.ADMIN_AUTH},
-                            verify=_ssl_verify(), timeout=15, proxies=mail_proxies,
-                        )
-
-                        if res.status_code == 200:
-                            results = res.json().get("results", [])
-                            for mail in results:
-                                m_id = mail.get("id")
-                                if not m_id or m_id in processed_mail_ids:
-                                    continue
-                                parsed = _extract_mail_fields(mail)
-                                sender_lower = str(parsed.get("sender", "")).lower()
-                                content = f"{parsed['subject']}\n{parsed['body']}".strip()
-                                if "openai" not in sender_lower and "openai" not in content.lower():
-                                    continue
-                                target_prefix = email.lower().split('@')[0]
-                                if target_prefix not in sender_lower and target_prefix not in content.lower():
-
-                                    continue
-                                code = _extract_otp_code(content)
-                                if code:
-                                    processed_mail_ids.add(m_id)
-                                    print(f"\n[{cfg.ts()}] [SUCCESS] Duck转发 (CF 临时邮箱) 提取成功: {code}")
-                                    return code
+                    # elif forward_mode == "cloudmail":
+                    #     if not forward_email:
+                    #         print(
+                    #             f"\n[{cfg.ts()}] [ERROR] Duckmail 运行失败: 未配置转发邮箱地址({forward_email})！")
+                    #         return ""
+                    #     token = get_cm_token(mail_proxies)
+                    #     if token:
+                    #         res = requests.post(
+                    #             f"{cfg.CM_API_URL}/api/public/emailList",
+                    #             headers={"Authorization": token},
+                    #             json={"toEmail": forward_email, "timeSort": "desc", "size": 10},
+                    #             proxies=mail_proxies, timeout=15,
+                    #         )
+                    #         if res.status_code == 200:
+                    #             for m in res.json().get("data", []):
+                    #                 m_id = str(m.get("emailId"))
+                    #                 if m_id in processed_mail_ids:
+                    #                     continue
+                    #                 content = f"{m.get('subject', '')}\n{m.get('text', '')}"
+                    #                 if "openai" not in m.get("sendEmail",
+                    #                                          "").lower() and "openai" not in content.lower():
+                    #                     continue
+                    #
+                    #                 target_email = email.lower()
+                    #                 if target_email not in str(m).lower() and target_email not in content.lower():
+                    #                     continue
+                    #
+                    #                 code = _extract_otp_code(content)
+                    #                 if code:
+                    #                     processed_mail_ids.add(m_id)
+                    #                     print(f"\n[{cfg.ts()}] [SUCCESS] Duck转发 (CloudMail) 提取成功: {code}")
+                    #                     return code
+                    #
+                    #
+                    # elif forward_mode == "freemail":
+                    #     if not forward_email:
+                    #         print(f"\n[{cfg.ts()}] [ERROR] Duckmail 运行失败: 未配置转发邮箱地址(forward_email)！")
+                    #         return ""
+                    #     headers = {"Content-Type": "application/json",
+                    #                "Authorization": f"Bearer {cfg.FREEMAIL_API_TOKEN}"}
+                    #     res = requests.get(f"{cfg.FREEMAIL_API_URL}/api/emails",
+                    #                        params={"mailbox": forward_email, "limit": 20},
+                    #                        headers=headers, proxies=mail_proxies,
+                    #                        verify=_ssl_verify(), timeout=15)
+                    #     if res.status_code == 200:
+                    #         raw_data = res.json()
+                    #         emails_list = (
+                    #             raw_data.get("data") or raw_data.get("emails") or raw_data.get("messages") or raw_data.get(
+                    #                 "results") or []
+                    #             if isinstance(raw_data, dict) else raw_data
+                    #         )
+                    #         if not isinstance(emails_list, list): emails_list = []
+                    #         for mail in emails_list:
+                    #             mail_id = str(mail.get("id") or mail.get("timestamp") or mail.get("subject") or "")
+                    #             if not mail_id or mail_id in processed_mail_ids: continue
+                    #             subject_text = str(mail.get("subject") or mail.get("title") or "")
+                    #             if "openai" not in subject_text.lower() and "openai" not in str(mail).lower():
+                    #                 continue
+                    #             try:
+                    #                 dr = requests.get(f"{cfg.FREEMAIL_API_URL}/api/email/{mail_id}",
+                    #                                   headers=headers, proxies=mail_proxies,
+                    #                                   verify=_ssl_verify(), timeout=15)
+                    #                 if dr.status_code == 200:
+                    #                     d = dr.json()
+                    #                     content = "\n".join(filter(None, [str(d.get("subject") or ""),
+                    #                                                       str(d.get("content") or ""),
+                    #                                                       str(d.get("html_content") or "")]))
+                    #
+                    #                     target_email = email.lower()
+                    #                     if target_email not in str(d).lower() and target_email not in content.lower():
+                    #                         continue
+                    #                     code = _extract_otp_code(content)
+                    #                     if not code: code = str(d.get("code") or d.get("verification_code") or "")
+                    #                     if code:
+                    #                         processed_mail_ids.add(mail_id)
+                    #                         print(f"[{cfg.ts()}] [SUCCESS] Duck转发 (Freemail) 提取成功: {code}")
+                    #                         return code
+                    #             except Exception:
+                    #                 pass
+                    #
+                    # elif forward_mode == "mail_curl":
+                    #     if not forward_email:
+                    #         print(
+                    #             f"\n[{cfg.ts()}] [ERROR] Duckmail 运行失败: 未配置转发邮箱地址(forward_email)！")
+                    #         return ""
+                    #     inbox_url = f"{cfg.MC_API_BASE}/api/inbox?key={cfg.MC_KEY}&mailbox_id={forward_email}"
+                    #     res = requests.get(inbox_url, proxies=mail_proxies, verify=_ssl_verify(),
+                    #                        timeout=10)
+                    #     if res.status_code == 200:
+                    #         for mail_item in (res.json() or []):
+                    #             m_id = mail_item.get("mail_id")
+                    #             s_name = mail_item.get("sender_name", "").lower()
+                    #             if m_id and m_id not in processed_mail_ids and "openai" in s_name:
+                    #                 detail_res = requests.get(
+                    #                     f"{cfg.MC_API_BASE}/api/mail?key={cfg.MC_KEY}&id={m_id}",
+                    #                     proxies=mail_proxies, verify=_ssl_verify(), timeout=10)
+                    #                 if detail_res.status_code == 200:
+                    #                     d = detail_res.json()
+                    #                     body = f"{d.get('subject', '')}\n{d.get('content', '')}\n{d.get('html', '')}"
+                    #                     target_email = email.lower()
+                    #                     if target_email not in str(d).lower() and target_email not in body.lower():
+                    #                         continue
+                    #
+                    #                     code = _extract_otp_code(body)
+                    #                     if code:
+                    #                         processed_mail_ids.add(m_id)
+                    #                         print(f"\n[{cfg.ts()}] [SUCCESS] Duck转发 (mail_curl) 提取成功: {code}")
+                    #                         return code
+                    # elif forward_mode == "cloudflare_temp_email":
+                    #     if not forward_email:
+                    #         print(f"[{cfg.ts()}] [ERROR] Duckmail 运行失败: 未配置转发邮箱地址(forward_email)！")
+                    #         return ""
+                    #     res = requests.get(
+                    #         f"{cfg.GPTMAIL_BASE}/admin/mails",
+                    #         params={"limit": 20, "offset": 0, "address": forward_email},
+                    #         headers={"x-admin-auth": cfg.ADMIN_AUTH},
+                    #         verify=_ssl_verify(), timeout=15, proxies=mail_proxies,
+                    #     )
+                    #
+                    #     if res.status_code == 200:
+                    #         results = res.json().get("results", [])
+                    #         for mail in results:
+                    #             m_id = mail.get("id")
+                    #             if not m_id or m_id in processed_mail_ids:
+                    #                 continue
+                    #             parsed = _extract_mail_fields(mail)
+                    #             sender_lower = str(parsed.get("sender", "")).lower()
+                    #             content = f"{parsed['subject']}\n{parsed['body']}".strip()
+                    #             if "openai" not in sender_lower and "openai" not in content.lower():
+                    #                 continue
+                    #             target_prefix = email.lower().split('@')[0]
+                    #             if target_prefix not in sender_lower and target_prefix not in content.lower():
+                    #
+                    #                 continue
+                    #             code = _extract_otp_code(content)
+                    #             if code:
+                    #                 processed_mail_ids.add(m_id)
+                    #                 print(f"\n[{cfg.ts()}] [SUCCESS] Duck转发 (CF 临时邮箱) 提取成功: {code}")
+                    #                 return code
                     else:
                         pass
 
@@ -1204,12 +1228,23 @@ def get_oai_code(
                 try:
                     from utils.email_providers.generator_email_service import GeneratorEmailService
                     ge_service = GeneratorEmailService(proxies=mail_proxies)
+                    mail_links = ge_service.get_inbox_links(jwt)
 
-                    code = ge_service.get_verification_code(jwt)
-                    if code:
-                        processed_mail_ids.add(jwt)
-                        print(f"\n[{cfg.ts()}] [SUCCESS] GeneratorEmail ({mask_email(email)})邮箱提取成功: {code}")
-                        return code
+                    for item in mail_links:
+                        m_id = item['id']
+                        m_href = item['href']
+
+                        if not m_id or m_id in processed_mail_ids:
+                            continue
+
+                        code = ge_service.get_code_from_detail(m_href, jwt)
+
+                        if code:
+                            processed_mail_ids.add(m_id)
+                            print(
+                                f"\n[{cfg.ts()}] [SUCCESS] GeneratorEmail ({mask_email(email)})邮箱提取成功: {code}")
+                            return code
+
                 except Exception as e:
                     pass
 
@@ -1262,8 +1297,10 @@ def get_oai_code(
                             continue
 
                         subject = str(msg.get("subject", ""))
+                        bodyPreview = str(msg.get("bodyPreview", ""))
+                        content = "\n".join([subject, bodyPreview])
                         code = ""
-                        m = re.search(r"(?<!\d)(\d{6})(?!\d)", subject)
+                        m = re.search(r"(?<!\d)(\d{6})(?!\d)", content)
                         if m:
                             code = m.group(1)
 
@@ -1455,6 +1492,7 @@ def get_oai_code(
                         if not mail_id or mail_id in processed_mail_ids:
                             continue
                         parsed = _extract_mail_fields(mail)
+
                         content = f"{parsed['subject']}\n{parsed['body']}".strip()
                         if ("openai" not in parsed["sender"].lower() and
                                 "openai" not in content.lower()):
